@@ -440,6 +440,28 @@ before the next big language addition.
       no tags surfaces as `[FAIL] <crash> exit=N`. Convention is
       framework-free for v1; a richer Assert module + `test_*`
       auto-discovery is a possible v2.
+- [ ] **Unify all test runners under `amc test`** — the repo
+      still ships ~1.9k lines of bash in `tests/run_tests.sh`
+      (992), `tests/run_stdlib_tests.sh` (607), `tests/run_fmt_tests.sh`
+      (132), `tests/run_amc_new_tests.sh` (143), and `tests/run_all_tests.sh`
+      (57). Each implements its own discovery + compile + capture
+      + tally loop in shell, with subtle differences (some pass
+      `--lib`, some assert expected stdout, fmt runner round-trips
+      via the formatter, amc-new runner shells out to scaffold + build).
+      Goal: rewrite every check as `*_test.am` files emitting
+      `[PASS]/[FAIL]/[SKIP]` lines so `amc test ./tests/` drives
+      the whole suite, then drop the bash. Likely needs `amc test`
+      additions: per-file env (`AMC_FLAGS`), expected-stdout
+      assertions (or move them inside the test bodies), parallel
+      execution, a `--filter <glob>` flag, and a `--ci` output
+      mode matching the current bash tally. Also: the fmt and
+      amc-new runners exercise tooling other than the compiler
+      (formatter idempotency, project scaffolding) — those need
+      either dedicated `Amalgame.Test` helpers (e.g.
+      `Test.Format(file)`, `Test.Scaffold("exe", "/tmp/x")`) or a
+      runner mode that shells out and captures. Big win: one
+      test entry point, one runtime, runs on every platform amc
+      compiles for (today the bash runners assume POSIX).
 - [x] **`amc --lint`** (v0.3.3 unreachable, v0.3.4 unused/shadow)
       — `src/linter.am` walks the AST and flags:
       unreachable code after `return` / `throw` / `break` /
