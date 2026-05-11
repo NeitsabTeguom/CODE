@@ -7719,6 +7719,11 @@ static code_string Amalgame_Compiler_CGen_EmitCalleeStr(Amalgame_Compiler_CGen* 
                 code_string __attribute__((unused)) firstChar = String_Substring(tname, 0, 1);
                 code_bool __attribute__((unused)) isUpper = code_string_equals(firstChar, String_ToUpper(firstChar));
                 if (isUpper) {
+                    if (code_string_equals(tname, "Path")) {
+                        if (code_string_equals(mname, "Combine") || code_string_equals(mname, "Sep") || code_string_equals(mname, "IsAbsolute") || code_string_equals(mname, "Normalize")) {
+                            return code_string_concat("Path_", mname);
+                        }
+                    }
                     code_bool __attribute__((unused)) isCoreStdlib = code_string_equals(tname, "Console") || code_string_equals(tname, "File") || code_string_equals(tname, "Math") || code_string_equals(tname, "String") || code_string_equals(tname, "List") || code_string_equals(tname, "Env") || code_string_equals(tname, "Process") || code_string_equals(tname, "Log") || code_string_equals(tname, "Service");
                     if (isCoreStdlib) {
                         return code_string_concat(code_string_concat(tname, "_"), mname);
@@ -19966,6 +19971,10 @@ i64 Amalgame_Compiler_AddCommand_RunRemove(i64 argc, i64 startIdx);
 void Amalgame_Compiler_AddCommand_RebuildLockFromTomlDeps(Amalgame_Compiler_TomlValue* depsTable, code_string lockPath);
 i64 Amalgame_Compiler_AddCommand_RunSearch(i64 argc, i64 startIdx);
 void Amalgame_Compiler_AddCommand_PrintVersionsForPackage(Amalgame_Compiler_TomlValue* verArr, code_string pkgName, code_string amcVer);
+void Amalgame_Compiler_AddCommand_PrintVersionsJsonForPackage(Amalgame_Compiler_TomlValue* verArr, code_string pkgName, code_string urlS, code_string amcVer);
+code_string Amalgame_Compiler_AddCommand_JsonEscape(code_string s);
+i64 Amalgame_Compiler_AddCommand_RunInfo(i64 argc, i64 startIdx);
+code_string Amalgame_Compiler_AddCommand_LastUrlSegment(code_string url);
 code_string Amalgame_Compiler_AddCommand_ResolveLatestCompatible(code_string shortname);
 code_string Amalgame_Compiler_AddCommand_ResolveShortname(code_string spec);
 code_string Amalgame_Compiler_AddCommand_FindExistingForTag(code_string baseDir, code_string tag);
@@ -20528,6 +20537,9 @@ i64 Amalgame_Compiler_AddCommand_RunPackage(i64 argc) {
     if (code_string_equals(sub, "versions")) {
         return Amalgame_Compiler_AddCommand_RunVersions(argc, 3);
     }
+    if (code_string_equals(sub, "info")) {
+        return Amalgame_Compiler_AddCommand_RunInfo(argc, 3);
+    }
     if (code_string_equals(sub, "list")) {
         return Amalgame_Compiler_AddCommand_RunList(argc, 3);
     }
@@ -20555,7 +20567,10 @@ void Amalgame_Compiler_AddCommand_PrintPackageUsage() {
     Console_WriteError("                                shortnames only)");
     Console_WriteError("    [--no-precompile]            Skip install-time compile (manifest opt-in)");
     Console_WriteError("  search [keyword] [--refresh]  List or filter packages-index with version compat");
-    Console_WriteError("  versions <name>               Show all indexed versions of a single package");
+    Console_WriteError("    [--no-versions]              Skip the per-package versions block (faster)");
+    Console_WriteError("  versions <name> [--refresh]   Show all indexed versions of a single package");
+    Console_WriteError("    [--json]                     Emit machine-readable JSON");
+    Console_WriteError("  info <name> [--refresh]       Show description, url, license, versions, install");
     Console_WriteError("  list                          Show installed deps");
     Console_WriteError("  remove <name> [<name>...]     Strip dep(s) from amalgame.toml + lock");
     Console_WriteError("  update <name>@<tag>           Bump a pinned tag");
@@ -20572,18 +20587,24 @@ i64 Amalgame_Compiler_AddCommand_RunVersions(i64 argc, i64 startIdx) {
     (void)startIdx;
     code_string __attribute__((unused)) pkgName = "";
     code_bool __attribute__((unused)) refresh = 0;
+    code_bool __attribute__((unused)) jsonOut = 0;
     i64 __attribute__((unused)) i = startIdx;
     while (i < argc) {
         code_string __attribute__((unused)) a = Args_Get(i);
         if (code_string_equals(a, "-h") || code_string_equals(a, "--help")) {
-            Console_WriteError("Usage: amc package versions <name> [--refresh]");
+            Console_WriteError("Usage: amc package versions <name> [--refresh] [--json]");
             Console_WriteError("");
             Console_WriteError("Show indexed versions of <name> with compat against your");
             Console_WriteError(code_string_concat(code_string_concat("amc ", Amalgame_Compiler_PackageRegistry_AmcVersion()), "."));
+            Console_WriteError("");
+            Console_WriteError("--refresh  force re-download of the index (cache TTL 30 min).");
+            Console_WriteError("--json     emit machine-readable JSON on stdout (for scripts).");
             return 0;
         }
         if (code_string_equals(a, "--refresh")) {
             refresh = 1;
+        } else if (code_string_equals(a, "--json")) {
+            jsonOut = 1;
         } else if (String_Length(pkgName) == 0) {
             pkgName = a;
         }
@@ -20630,9 +20651,13 @@ i64 Amalgame_Compiler_AddCommand_RunVersions(i64 argc, i64 startIdx) {
         Console_WriteError("       `amc package add github.com/<owner>/<repo>@<tag>`");
         return 1;
     }
-    Console_WriteLine(code_string_concat(code_string_concat(pkgName, " — "), urlS));
     code_string __attribute__((unused)) amcVer = Amalgame_Compiler_PackageRegistry_AmcVersion();
     Amalgame_Compiler_TomlValue* __attribute__((unused)) verArr = Amalgame_Compiler_TomlValue_Get(doc, "version");
+    if (jsonOut) {
+        Amalgame_Compiler_AddCommand_PrintVersionsJsonForPackage(verArr, pkgName, urlS, amcVer);
+        return 0;
+    }
+    Console_WriteLine(code_string_concat(code_string_concat(pkgName, " — "), urlS));
     Amalgame_Compiler_AddCommand_PrintVersionsForPackage(verArr, pkgName, amcVer);
     return 0;
 }
@@ -20989,22 +21014,27 @@ i64 Amalgame_Compiler_AddCommand_RunSearch(i64 argc, i64 startIdx) {
     (void)startIdx;
     code_string __attribute__((unused)) keyword = "";
     code_bool __attribute__((unused)) refresh = 0;
+    code_bool __attribute__((unused)) noVersions = 0;
     i64 __attribute__((unused)) i = startIdx;
     while (i < argc) {
         code_string __attribute__((unused)) a = Args_Get(i);
         if (code_string_equals(a, "-h") || code_string_equals(a, "--help")) {
-            Console_WriteError("Usage: amc package search [keyword] [--refresh]");
+            Console_WriteError("Usage: amc package search [keyword] [--refresh] [--no-versions]");
             Console_WriteError("");
             Console_WriteError("List packages in amalgame-lang/packages-index.");
             Console_WriteError("With a keyword, filter by name + description substring.");
             Console_WriteError("Each match shows its known versions and compat status");
             Console_WriteError(code_string_concat(code_string_concat("against your amc ", Amalgame_Compiler_PackageRegistry_AmcVersion()), "."));
             Console_WriteError("");
-            Console_WriteError("--refresh  force re-download of the index (cache TTL 30 min).");
+            Console_WriteError("--refresh       force re-download of the index (cache TTL 30 min).");
+            Console_WriteError("--no-versions   omit the per-package versions block — faster browse,");
+            Console_WriteError("                useful when you only want names + urls.");
             return 0;
         }
         if (code_string_equals(a, "--refresh")) {
             refresh = 1;
+        } else if (code_string_equals(a, "--no-versions")) {
+            noVersions = 1;
         } else if (String_Length(keyword) == 0) {
             keyword = a;
         }
@@ -21060,7 +21090,9 @@ i64 Amalgame_Compiler_AddCommand_RunSearch(i64 argc, i64 startIdx) {
         }
         Console_WriteLine(code_string_concat(code_string_concat(code_string_concat(badge, nameS), " — "), descS));
         Console_WriteLine(code_string_concat(code_string_concat(code_string_concat(code_string_concat(code_string_concat(code_string_concat("    ", urlS), " ("), tierS), ", "), licS), ")"));
-        Amalgame_Compiler_AddCommand_PrintVersionsForPackage(verArr, nameS, amcVer);
+        if (!noVersions) {
+            Amalgame_Compiler_AddCommand_PrintVersionsForPackage(verArr, nameS, amcVer);
+        }
         Console_WriteLine("");
         matches = matches + 1;
     }
@@ -21136,6 +21168,221 @@ void Amalgame_Compiler_AddCommand_PrintVersionsForPackage(Amalgame_Compiler_Toml
         Console_WriteLine(line);
         k = k - 1;
     }
+}
+
+void Amalgame_Compiler_AddCommand_PrintVersionsJsonForPackage(Amalgame_Compiler_TomlValue* verArr, code_string pkgName, code_string urlS, code_string amcVer) {
+    (void)verArr;
+    (void)pkgName;
+    (void)urlS;
+    (void)amcVer;
+    AmalgameList* __attribute__((unused)) tags = AmalgameList_new();
+    AmalgameList* __attribute__((unused)) reqs = AmalgameList_new();
+    if (Amalgame_Compiler_TomlValue_IsArray(verArr)) {
+        i64 __attribute__((unused)) n = Amalgame_Compiler_TomlValue_Count(verArr);
+        for (i64 i = 0; i < n; i++) {
+            Amalgame_Compiler_TomlValue* __attribute__((unused)) entry = Amalgame_Compiler_TomlValue_At(verArr, i);
+            if (!code_string_equals(Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(entry, "package")), pkgName)) {
+                continue;
+            }
+            code_string __attribute__((unused)) tag = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(entry, "tag"));
+            if (String_Length(tag) == 0) {
+                continue;
+            }
+            AmalgameList_add(tags, (void*)(intptr_t)(tag));
+            AmalgameList_add(reqs, (void*)(intptr_t)(Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(entry, "required-amalgame"))));
+        }
+    }
+    i64 __attribute__((unused)) count = AmalgameList_count(tags);
+    i64 __attribute__((unused)) latestCompat = -1;
+    for (i64 j = 0; j < count; j++) {
+        if (Amalgame_Compiler_PackageRegistry_VersionSatisfies(amcVer, (code_string)AmalgameList_get(reqs, j))) {
+            latestCompat = j;
+        }
+    }
+    code_string __attribute__((unused)) out = "{\n";
+    out = code_string_concat(code_string_concat(code_string_concat(out, "  \"package\": \""), Amalgame_Compiler_AddCommand_JsonEscape(pkgName)), "\",\n");
+    out = code_string_concat(code_string_concat(code_string_concat(out, "  \"url\": \""), Amalgame_Compiler_AddCommand_JsonEscape(urlS)), "\",\n");
+    out = code_string_concat(code_string_concat(code_string_concat(out, "  \"amc\": \""), Amalgame_Compiler_AddCommand_JsonEscape(amcVer)), "\",\n");
+    out = code_string_concat(out, "  \"versions\": [");
+    if (count == 0) {
+        out = code_string_concat(out, "]\n}");
+        Console_WriteLine(out);
+        return;
+    }
+    out = code_string_concat(out, "\n");
+    i64 __attribute__((unused)) k = count - 1;
+    while (k >= 0) {
+        code_string __attribute__((unused)) tag = (code_string)AmalgameList_get(tags, k);
+        code_string __attribute__((unused)) req = (code_string)AmalgameList_get(reqs, k);
+        code_bool __attribute__((unused)) compat = 1;
+        if (String_Length(req) > 0) {
+            compat = Amalgame_Compiler_PackageRegistry_VersionSatisfies(amcVer, req);
+        }
+        code_string __attribute__((unused)) entryOut = "    {";
+        entryOut = code_string_concat(code_string_concat(code_string_concat(entryOut, "\"tag\": \""), Amalgame_Compiler_AddCommand_JsonEscape(tag)), "\"");
+        entryOut = code_string_concat(code_string_concat(code_string_concat(entryOut, ", \"required-amalgame\": \""), Amalgame_Compiler_AddCommand_JsonEscape(req)), "\"");
+        if (compat) {
+            entryOut = code_string_concat(entryOut, ", \"compatible\": true");
+        } else {
+            entryOut = code_string_concat(entryOut, ", \"compatible\": false");
+        }
+        if (k == latestCompat) {
+            entryOut = code_string_concat(entryOut, ", \"latest_compatible\": true");
+        } else {
+            entryOut = code_string_concat(entryOut, ", \"latest_compatible\": false");
+        }
+        entryOut = code_string_concat(entryOut, "}");
+        if (k > 0) {
+            entryOut = code_string_concat(entryOut, ",");
+        }
+        out = code_string_concat(code_string_concat(out, entryOut), "\n");
+        k = k - 1;
+    }
+    out = code_string_concat(out, "  ]\n}");
+    Console_WriteLine(out);
+}
+
+code_string Amalgame_Compiler_AddCommand_JsonEscape(code_string s) {
+    (void)s;
+    code_string __attribute__((unused)) out = String_Replace(s, "\\", "\\\\");
+    out = String_Replace(out, "\"", "\\\"");
+    out = String_Replace(out, "\n", "\\n");
+    out = String_Replace(out, "\\r", "\\r");
+    out = String_Replace(out, "\t", "\\t");
+    return out;
+}
+
+i64 Amalgame_Compiler_AddCommand_RunInfo(i64 argc, i64 startIdx) {
+    (void)argc;
+    (void)startIdx;
+    code_string __attribute__((unused)) pkgName = "";
+    code_bool __attribute__((unused)) refresh = 0;
+    i64 __attribute__((unused)) i = startIdx;
+    while (i < argc) {
+        code_string __attribute__((unused)) a = Args_Get(i);
+        if (code_string_equals(a, "-h") || code_string_equals(a, "--help")) {
+            Console_WriteError("Usage: amc package info <name> [--refresh]");
+            Console_WriteError("");
+            Console_WriteError("Show description, url, license, indexed versions and");
+            Console_WriteError("install status for a single indexed package.");
+            Console_WriteError("");
+            Console_WriteError("--refresh  force re-download of the index (cache TTL 30 min).");
+            return 0;
+        }
+        if (code_string_equals(a, "--refresh")) {
+            refresh = 1;
+        } else if (String_Length(pkgName) == 0) {
+            pkgName = a;
+        }
+        i = i + 1;
+    }
+    if (String_Length(pkgName) == 0) {
+        Console_WriteError("amc package info: missing <name>");
+        return 2;
+    }
+    if (refresh) {
+        code_string __attribute__((unused)) cachePath = Amalgame_Compiler_AddCommand_IndexCachePath();
+        if (File_Exists(cachePath)) {
+            i64 __attribute__((unused)) _rm = Process_Run(code_string_concat(code_string_concat("rm -f '", cachePath), "'"));
+        }
+    }
+    code_string __attribute__((unused)) indexSrc = Amalgame_Compiler_AddCommand_FetchIndex();
+    if (String_Length(indexSrc) == 0) {
+        Console_WriteError("could not fetch packages-index");
+        return 1;
+    }
+    Amalgame_Compiler_TomlValue* __attribute__((unused)) doc = Amalgame_Compiler_Toml_Parse(indexSrc);
+    if (Amalgame_Compiler_TomlValue_IsNull(doc)) {
+        Console_WriteError("packages-index parse error");
+        return 1;
+    }
+    Amalgame_Compiler_TomlValue* __attribute__((unused)) pkgArr = Amalgame_Compiler_TomlValue_Get(doc, "package");
+    if (!Amalgame_Compiler_TomlValue_IsArray(pkgArr)) {
+        Console_WriteError("packages-index has no [[package]] entries");
+        return 1;
+    }
+    code_bool __attribute__((unused)) found = 0;
+    code_string __attribute__((unused)) descS = "";
+    code_string __attribute__((unused)) urlS = "";
+    code_string __attribute__((unused)) tierS = "";
+    code_string __attribute__((unused)) licS = "";
+    code_string __attribute__((unused)) catS = "";
+    code_string __attribute__((unused)) maintS = "";
+    i64 __attribute__((unused)) pn = Amalgame_Compiler_TomlValue_Count(pkgArr);
+    for (i64 j = 0; j < pn; j++) {
+        Amalgame_Compiler_TomlValue* __attribute__((unused)) p = Amalgame_Compiler_TomlValue_At(pkgArr, j);
+        if (code_string_equals(Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "name")), pkgName)) {
+            found = 1;
+            descS = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "description"));
+            urlS = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "url"));
+            tierS = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "tier"));
+            licS = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "license"));
+            catS = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "category"));
+            maintS = Amalgame_Compiler_TomlValue_AsString(Amalgame_Compiler_TomlValue_Get(p, "maintainer"));
+        }
+    }
+    if (!found) {
+        Console_WriteError(code_string_concat(code_string_concat("amc package info: '", pkgName), "' not found in packages-index."));
+        Console_WriteError("       For unindexed packages, use the full URL form:");
+        Console_WriteError("       `amc package add github.com/<owner>/<repo>@<tag>`");
+        return 1;
+    }
+    code_string __attribute__((unused)) badge = "  ";
+    if (code_string_equals(tierS, "official")) {
+        badge = "✓ ";
+    }
+    Console_WriteLine(code_string_concat(code_string_concat(code_string_concat(badge, pkgName), " — "), descS));
+    Console_WriteLine(code_string_concat("  url:        ", urlS));
+    if (String_Length(tierS) > 0) {
+        Console_WriteLine(code_string_concat("  tier:       ", tierS));
+    }
+    if (String_Length(licS) > 0) {
+        Console_WriteLine(code_string_concat("  license:    ", licS));
+    }
+    if (String_Length(catS) > 0) {
+        Console_WriteLine(code_string_concat("  category:   ", catS));
+    }
+    if (String_Length(maintS) > 0) {
+        Console_WriteLine(code_string_concat("  maintainer: ", maintS));
+    }
+    Amalgame_Compiler_PackageRegistry* __attribute__((unused)) reg = Amalgame_Compiler_PackageRegistry_Load();
+    code_bool __attribute__((unused)) installed = 0;
+    code_string __attribute__((unused)) installedTag = "";
+    code_string __attribute__((unused)) urlSlug = Amalgame_Compiler_AddCommand_LastUrlSegment(urlS);
+    i64 __attribute__((unused)) np = AmalgameList_count(reg->Packages);
+    for (i64 k = 0; k < np; k++) {
+        Amalgame_Compiler_LoadedPackage* __attribute__((unused)) lp = (Amalgame_Compiler_LoadedPackage*)AmalgameList_get(reg->Packages, k);
+        if (code_string_equals(lp->Name, urlSlug)) {
+            installed = 1;
+            installedTag = lp->Tag;
+        }
+    }
+    if (installed) {
+        if (String_Length(installedTag) > 0) {
+            Console_WriteLine(code_string_concat(code_string_concat("  installed:  yes (", installedTag), ")"));
+        } else {
+            Console_WriteLine("  installed:  yes");
+        }
+    } else {
+        Console_WriteLine("  installed:  no");
+    }
+    code_string __attribute__((unused)) amcVer = Amalgame_Compiler_PackageRegistry_AmcVersion();
+    Amalgame_Compiler_TomlValue* __attribute__((unused)) verArr = Amalgame_Compiler_TomlValue_Get(doc, "version");
+    Amalgame_Compiler_AddCommand_PrintVersionsForPackage(verArr, pkgName, amcVer);
+    return 0;
+}
+
+code_string Amalgame_Compiler_AddCommand_LastUrlSegment(code_string url) {
+    (void)url;
+    i64 __attribute__((unused)) n = String_Length(url);
+    if (n == 0) {
+        return "";
+    }
+    i64 __attribute__((unused)) idx = String_LastIndexOf(url, "/");
+    if (idx < 0) {
+        return url;
+    }
+    return String_Substring(url, idx + 1, n - idx - 1);
 }
 
 code_string Amalgame_Compiler_AddCommand_ResolveLatestCompatible(code_string shortname) {
