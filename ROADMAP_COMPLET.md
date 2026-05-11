@@ -543,9 +543,15 @@ before the next big language addition.
           `~` (tilde, locks major.minor).
         - **v0.6.1** — `amc package info <name>` (description, url,
           tier, license, category, maintainer, versions, install
-          status); `--no-versions` on `search` for faster browse;
-          `--json` on `versions` for scripting (jq / CI compat
-          probes, stable schema).
+          status); `amc package outdated` (cross-references the
+          lockfile against the index, lists deps with a newer
+          compatible tag); `--no-versions` on `search` for faster
+          browse; `--json` on `versions` for scripting (jq / CI
+          compat probes, stable schema). Plus a help-text audit
+          pass: `add --help` now documents the shortname auto-
+          resolve form + `--no-precompile` + the full semver
+          operator set; the top-level `amc --help` verb list adds
+          `versions / info / outdated` (previously omitted).
 - [x] **`amc lsp` (diagnostics)** (v0.3.4) — minimal LSP 3.x server
       over stdio JSON-RPC. Implements lifecycle (`initialize` /
       `shutdown` / `exit`), document state (didOpen / didChange /
