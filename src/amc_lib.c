@@ -21226,6 +21226,8 @@ void Amalgame_Compiler_Program_PrintUsage() {
     Console_WriteError("                See `amc explain --help`.");
     Console_WriteError("  new <name>    Scaffold a new Amalgame project (exe / lib / test templates).");
     Console_WriteError("                See `amc new --help`.");
+    Console_WriteError("  package <X>   Package manager (alias `pkg`). Verbs: add / remove / list /");
+    Console_WriteError("                search / update / cache. See `amc package --help`.");
 }
 
 i64 Amalgame_Compiler_Program_RunTest(i64 argc) {
