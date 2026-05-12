@@ -35,6 +35,11 @@ public enum NodeKind {
     THIS_EXPR
     INDEX_EXPR
     LIST_COMP
+    // Inline-C raw block (`@c { … }`). `Str` holds the verbatim C source
+    // between the matching braces (outer `{`/`}` excluded). The resolver
+    // treats it as opaque; the cgen splices it inside a compound statement
+    // so locals stay scoped.
+    INLINE_C
 }
 
 // ── Single AstNode type — all fields, used by kind ───
@@ -202,5 +207,11 @@ public class Ast {
 
     public static AstNode This(int line, int col) {
         return new AstNode(NodeKind.THIS_EXPR, line, col)
+    }
+
+    public static AstNode InlineC(string body, int line, int col) {
+        let n = new AstNode(NodeKind.INLINE_C, line, col)
+        n.Str = body
+        return n
     }
 }
