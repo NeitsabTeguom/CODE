@@ -383,6 +383,15 @@ run_test "inline-C: local + multi-stmt" "$SAMPLES/inline_c.am"  "doubled=42"
 run_test "inline-C: brace torture"    "$SAMPLES/inline_c.am"  "braces=ab}c{de"
 run_test "inline-C: void side-effect" "$SAMPLES/inline_c.am"  "!done"
 
+# File-scope `@c_include` / `@c_link` directives — give inline-C bodies
+# access to libc headers not in the runtime prelude (`-lm` etc. are
+# already linked by this harness; the @c_link is asserted via the
+# comment the cgen leaves in the emitted .c).
+run_test "inline-C dir: toupper"      "$SAMPLES/inline_c_directives.am"  "a→65"
+run_test "inline-C dir: toupper z"    "$SAMPLES/inline_c_directives.am"  "z→90"
+run_test "inline-C dir: isalpha yes"  "$SAMPLES/inline_c_directives.am"  "A is alpha"
+run_test "inline-C dir: isalpha no"   "$SAMPLES/inline_c_directives.am"  "0 is not alpha"
+
 # Env builtins (Env.Get / Env.Has) — exported here so the sample sees them.
 export AMC_ENV_PROBE=hello
 run_test "env: hasPath true"         "$SAMPLES/stdlib_env.am"  "hasPath: true"

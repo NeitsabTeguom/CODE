@@ -254,7 +254,9 @@ enum _Amalgame_Compiler_NodeKind {
     Amalgame_Compiler_NodeKind_THIS_EXPR,
     Amalgame_Compiler_NodeKind_INDEX_EXPR,
     Amalgame_Compiler_NodeKind_LIST_COMP,
-    Amalgame_Compiler_NodeKind_INLINE_C
+    Amalgame_Compiler_NodeKind_INLINE_C,
+    Amalgame_Compiler_NodeKind_INLINE_C_INCLUDE,
+    Amalgame_Compiler_NodeKind_INLINE_C_LINK
 };
 
 struct _Amalgame_Compiler_AstNode {
@@ -324,6 +326,8 @@ Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_FloatLit(code_string raw, i64 l
 Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_NewExpr(code_string typeName, i64 line, i64 col);
 Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_This(i64 line, i64 col);
 Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_InlineC(code_string body, i64 line, i64 col);
+Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_InlineCInclude(code_string arg, i64 line, i64 col);
+Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_InlineCLink(code_string lib, i64 line, i64 col);
 
 Amalgame_Compiler_Ast* Amalgame_Compiler_Ast_new() {
     Amalgame_Compiler_Ast* self = (Amalgame_Compiler_Ast*) GC_MALLOC(sizeof(Amalgame_Compiler_Ast));
@@ -442,6 +446,18 @@ Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_This(i64 line, i64 col) {
 Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_InlineC(code_string body, i64 line, i64 col) {
     Amalgame_Compiler_AstNode* n = Amalgame_Compiler_AstNode_new(Amalgame_Compiler_NodeKind_INLINE_C, line, col);
     n->Str = body;
+    return n;
+}
+
+Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_InlineCInclude(code_string arg, i64 line, i64 col) {
+    Amalgame_Compiler_AstNode* n = Amalgame_Compiler_AstNode_new(Amalgame_Compiler_NodeKind_INLINE_C_INCLUDE, line, col);
+    n->Str = arg;
+    return n;
+}
+
+Amalgame_Compiler_AstNode* Amalgame_Compiler_Ast_InlineCLink(code_string lib, i64 line, i64 col) {
+    Amalgame_Compiler_AstNode* n = Amalgame_Compiler_AstNode_new(Amalgame_Compiler_NodeKind_INLINE_C_LINK, line, col);
+    n->Str = lib;
     return n;
 }
 
@@ -1155,6 +1171,7 @@ struct _Amalgame_Compiler_Parser {
 static void Amalgame_Compiler_Parser_ParseDecoratorList(Amalgame_Compiler_Parser* self);
 static code_string Amalgame_Compiler_Parser_TakeDecorators(Amalgame_Compiler_Parser* self);
 Amalgame_Compiler_AstNode* Amalgame_Compiler_Parser_Parse(Amalgame_Compiler_Parser* self);
+static Amalgame_Compiler_AstNode* Amalgame_Compiler_Parser_ParseInlineCDirective(Amalgame_Compiler_Parser* self);
 code_bool Amalgame_Compiler_Parser_HasErrors(Amalgame_Compiler_Parser* self);
 code_string Amalgame_Compiler_Parser_GetErrors(Amalgame_Compiler_Parser* self);
 static Amalgame_Compiler_Token* Amalgame_Compiler_Parser_Current(Amalgame_Compiler_Parser* self);
@@ -1294,6 +1311,15 @@ Amalgame_Compiler_AstNode* Amalgame_Compiler_Parser_Parse(Amalgame_Compiler_Pars
             }
         }
         parseLastPos = self->Pos;
+        if (Amalgame_Compiler_Parser_CheckType(self, Amalgame_Compiler_TokenType_AT)) {
+            Amalgame_Compiler_Token* nextTok = Amalgame_Compiler_Parser_Peek(self, 1);
+            if (nextTok->Type == Amalgame_Compiler_TokenType_IDENTIFIER && code_string_equals(nextTok->Value, "c_include") || code_string_equals(nextTok->Value, "c_link")) {
+                Amalgame_Compiler_AstNode* directive = Amalgame_Compiler_Parser_ParseInlineCDirective(self);
+                AmalgameList_add(prog->Children, (void*)(intptr_t)(directive));
+                Amalgame_Compiler_Parser_SkipNewlines(self);
+                continue;
+            }
+        }
         code_string curVal = Amalgame_Compiler_Parser_Current(self)->Value;
         Amalgame_Compiler_AstNode* decl = Amalgame_Compiler_Parser_ParseDecl(self);
         Amalgame_Compiler_NodeKind dk = decl->Kind;
@@ -1303,6 +1329,19 @@ Amalgame_Compiler_AstNode* Amalgame_Compiler_Parser_Parse(Amalgame_Compiler_Pars
         Amalgame_Compiler_Parser_SkipNewlines(self);
     }
     return prog;
+}
+
+static Amalgame_Compiler_AstNode* Amalgame_Compiler_Parser_ParseInlineCDirective(Amalgame_Compiler_Parser* self) {
+    Amalgame_Compiler_Token* atTok = Amalgame_Compiler_Parser_Advance(self);
+    Amalgame_Compiler_Token* kwTok = Amalgame_Compiler_Parser_Advance(self);
+    if (!Amalgame_Compiler_Parser_CheckType(self, Amalgame_Compiler_TokenType_STRING)) {
+        return Amalgame_Compiler_Parser_Unknown(self);
+    }
+    Amalgame_Compiler_Token* strTok = Amalgame_Compiler_Parser_Advance(self);
+    if (code_string_equals(kwTok->Value, "c_include")) {
+        return Amalgame_Compiler_Ast_InlineCInclude(strTok->Value, atTok->Line, atTok->Column);
+    }
+    return Amalgame_Compiler_Ast_InlineCLink(strTok->Value, atTok->Line, atTok->Column);
 }
 
 code_bool Amalgame_Compiler_Parser_HasErrors(Amalgame_Compiler_Parser* self) {
@@ -6510,6 +6549,17 @@ static void Amalgame_Compiler_CGen_EmitDecl(Amalgame_Compiler_CGen* self, Amalga
     if (k == Amalgame_Compiler_NodeKind_CLASS_DECL) {
         Amalgame_Compiler_CGen_EmitClass(self, decl);
     }
+    if (k == Amalgame_Compiler_NodeKind_INLINE_C_INCLUDE) {
+        code_string arg = decl->Str;
+        if (String_Length(arg) > 0 && code_string_equals(String_Substring(arg, 0, 1), "<")) {
+            Amalgame_Compiler_Emitter_EmitLine(self->Out, code_string_concat("#include ", arg));
+        } else {
+            Amalgame_Compiler_Emitter_EmitLine(self->Out, code_string_concat(code_string_concat("#include \"", arg), "\""));
+        }
+    }
+    if (k == Amalgame_Compiler_NodeKind_INLINE_C_LINK) {
+        Amalgame_Compiler_Emitter_EmitLine(self->Out, code_string_concat(code_string_concat("/* link: -l", decl->Str), " */"));
+    }
 }
 
 static void Amalgame_Compiler_CGen_EmitEnum(Amalgame_Compiler_CGen* self, Amalgame_Compiler_AstNode* en) {
@@ -8683,6 +8733,10 @@ static void Amalgame_Compiler_Formatter_EmitTopDecl(Amalgame_Compiler_Formatter*
         Amalgame_Compiler_Formatter_EmitEnum(self, n);
     } else if (k == Amalgame_Compiler_NodeKind_VAR_DECL) {
         Amalgame_Compiler_Formatter_EmitVarDecl(self, n, 1);
+    } else if (k == Amalgame_Compiler_NodeKind_INLINE_C_INCLUDE) {
+        Amalgame_Compiler_Formatter_Line(self, code_string_concat(code_string_concat("@c_include \"", n->Str), "\""));
+    } else if (k == Amalgame_Compiler_NodeKind_INLINE_C_LINK) {
+        Amalgame_Compiler_Formatter_Line(self, code_string_concat(code_string_concat("@c_link \"", n->Str), "\""));
     } else {
         Amalgame_Compiler_Formatter_Line(self, code_string_concat(code_string_concat("// TODO: top-level kind ", Amalgame_Compiler_Formatter_KindName(self, k)), ""));
     }

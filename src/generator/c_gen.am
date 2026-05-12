@@ -1401,6 +1401,24 @@ public class CGen {
         let k = decl.Kind
         if (k == NodeKind.ENUM_DECL) { this.EmitEnum(decl) }
         if (k == NodeKind.CLASS_DECL) { this.EmitClass(decl) }
+        if (k == NodeKind.INLINE_C_INCLUDE) {
+            // `@c_include "<h.h>"` → `#include <h.h>`; quoted form when
+            // the argument starts with anything other than `<`. The user
+            // controls the bracket style by what they pass.
+            let arg = decl.Str
+            if (String_Length(arg) > 0 && String_Substring(arg, 0, 1) == "<") {
+                this.Out.EmitLine("#include " + arg)
+            } else {
+                this.Out.EmitLine("#include \"" + arg + "\"")
+            }
+        }
+        if (k == NodeKind.INLINE_C_LINK) {
+            // `@c_link "name"` — for v0.7.4 MVP we surface it as a comment
+            // so the user knows which `-l<name>` to pass at gcc time.
+            // `amc test` may thread these into its internal gcc command
+            // in a follow-up; `amc -o` doesn't link at all today.
+            this.Out.EmitLine("/* link: -l" + decl.Str + " */")
+        }
     }
 
     private void EmitEnum(AstNode en) {

@@ -181,6 +181,10 @@ public class Formatter {
             this.EmitEnum(n)
         } else if (k == NodeKind.VAR_DECL) {
             this.EmitVarDecl(n, true)
+        } else if (k == NodeKind.INLINE_C_INCLUDE) {
+            this.Line("@c_include \"" + n.Str + "\"")
+        } else if (k == NodeKind.INLINE_C_LINK) {
+            this.Line("@c_link \"" + n.Str + "\"")
         } else {
             this.Line("// TODO: top-level kind " + this.KindName(k) + "")
         }
