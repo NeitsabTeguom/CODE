@@ -119,16 +119,16 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          # libsystre + tre give POSIX <regex.h> on MINGW64 (Linux glibc
-          # and macOS libSystem ship it natively, Windows doesn't). zlib
-          # is needed by Amalgame_Compress.h (added v0.7.2); it usually
-          # comes in transitively via curl but -lz is explicit at link.
+          # libsystre gives POSIX <regex.h> on MINGW64 (Linux glibc and
+          # macOS libSystem ship it natively, Windows doesn't). It
+          # depends on libtre transitively, no need to spell it out.
+          # zlib is needed by Amalgame_Compress.h (added v0.7.2); it
+          # usually comes in via curl but -lz is explicit at link.
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-gc
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-libsystre
-            mingw-w64-x86_64-tre-git
             mingw-w64-x86_64-zlib
 
       - name: Compile amc from tracked amc_lib.c
