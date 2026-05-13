@@ -4786,6 +4786,7 @@ struct _Amalgame_Compiler_LoadedPackage {
     code_string CxxFlags;
     AmalgameList* Libs;
     code_bool Precompile;
+    code_string Facade;
 };
 
 
@@ -4804,6 +4805,7 @@ Amalgame_Compiler_LoadedPackage* Amalgame_Compiler_LoadedPackage_new() {
     self->CxxFlags = "";
     self->Libs = AmalgameList_new();
     self->Precompile = 0;
+    self->Facade = "";
     return self;
 }
 
@@ -4953,6 +4955,11 @@ Amalgame_Compiler_PackageRegistry* Amalgame_Compiler_PackageRegistry_LoadFrom(co
         }
         Amalgame_Compiler_TomlValue* precompileVal = Amalgame_Compiler_TomlValue_Get(stdlibTable, "precompile");
         lp->Precompile = Amalgame_Compiler_TomlValue_AsBool(precompileVal);
+        Amalgame_Compiler_TomlValue* facadeVal = Amalgame_Compiler_TomlValue_Get(stdlibTable, "facade");
+        code_string facadeRel = Amalgame_Compiler_TomlValue_AsString(facadeVal);
+        if (String_Length(facadeRel) > 0) {
+            lp->Facade = code_string_concat(code_string_concat(pkgDir, "/"), facadeRel);
+        }
         Amalgame_Compiler_TomlValue* funcsTbl = Amalgame_Compiler_TomlValue_Get(stdlibTable, "functions");
         if (Amalgame_Compiler_TomlValue_IsTable(funcsTbl)) {
             AmalgameList* funcKeys = Amalgame_Compiler_TomlValue_Keys(funcsTbl);
@@ -16424,11 +16431,11 @@ Amalgame_Compiler_BuildInfo* Amalgame_Compiler_BuildInfo_new() {
 }
 
 code_string Amalgame_Compiler_BuildInfo_GitRev() {
-    return "120401c2";
+    return "a623f919";
 }
 
 code_string Amalgame_Compiler_BuildInfo_BuildDate() {
-    return "2026-05-13T09:02:50Z";
+    return "2026-05-13T09:34:22Z";
 }
 
 Amalgame_Compiler_Log* Amalgame_Compiler_Log_new();
