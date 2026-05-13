@@ -378,6 +378,34 @@ public class PackageRegistry {
         return false
     }
 
+    // Resolve the per-package facade archive path:
+    //   <pkgDir>/build/<platform>/libamalgame-pkg-<class>.a
+    // Doesn't check whether the file exists — callers that care
+    // (Program.RunTest, the user's gcc step) check separately.
+    public static string FacadeArchivePath(LoadedPackage p) {
+        let buildDir: string = PackageRegistry.PrecompileCacheDir(p.PkgDir)
+        return buildDir + "/libamalgame-pkg-" + p.ClassName + ".a"
+    }
+
+    // Collect facade archive paths from every loaded package that
+    // declares a `[stdlib].facade` AND has an on-disk archive (the
+    // archive may be missing if `amc package add` ran with
+    // `--no-precompile` or pre-dates this feature). Caller splices
+    // each path into the gcc link line — see Program.RunTest.
+    public List<string> CollectFacadeArchives() {
+        let out: List<string> = new List<string>()
+        let n: int = this.Packages.Count()
+        for i in 0..n {
+            let p: LoadedPackage = this.Packages.Get(i)
+            if (String_Length(p.Facade) == 0) { continue }
+            let archive: string = PackageRegistry.FacadeArchivePath(p)
+            if (File.Exists(archive)) {
+                out.Add(archive)
+            }
+        }
+        return out
+    }
+
     // Flatten every loaded package's [stdlib].libs list into a
     // single list of bare lib names. Order is significant for
     // static-link cycles but for our (small-N, dynamic) case it
