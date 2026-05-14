@@ -420,13 +420,21 @@ public class AddCommand {
             return
         }
 
-        // Resolve amc's runtime/ for -I.
+        // Resolve amc's runtime/ for -I. Same probe order as
+        // PrecompileFacade: $AMC_RUNTIME → XDG install path
+        // → legacy in-tree.
         let amcPath0: string = Args_Get(0)
         var amcRuntime: string = Env_Get("AMC_RUNTIME")
         if (String_Length(amcRuntime) == 0) {
             let slashIdx: int = String_LastIndexOf(amcPath0, "/")
             if (slashIdx >= 0) {
-                amcRuntime = String_Substring(amcPath0, 0, slashIdx) + "/runtime"
+                let amcDir0: string = String_Substring(amcPath0, 0, slashIdx)
+                let xdgPath0: string = amcDir0 + "/../share/amalgame/runtime"
+                if (File.Exists(xdgPath0 + "/_runtime.h")) {
+                    amcRuntime = xdgPath0
+                } else {
+                    amcRuntime = amcDir0 + "/runtime"
+                }
             }
         }
 
@@ -572,12 +580,25 @@ public class AddCommand {
 
         // Resolve amc's path (for the --lib subprocess) and runtime/
         // dir (for the gcc -I flag) — same dance as PrecompilePackage.
+        // Probe order matches Program.ResolveRuntimeDir in main.am:
+        //   1. $AMC_RUNTIME env var
+        //   2. <bin>/../share/amalgame/runtime  (XDG install layout
+        //      since amc v0.8.1, used by install.sh + the release
+        //      tarballs)
+        //   3. <bin>/runtime                    (legacy in-tree path,
+        //      kept for source checkouts)
         let amcPath: string = Args_Get(0)
         var amcRuntime: string = Env_Get("AMC_RUNTIME")
         if (String_Length(amcRuntime) == 0) {
             let slashIdx: int = String_LastIndexOf(amcPath, "/")
             if (slashIdx >= 0) {
-                amcRuntime = String_Substring(amcPath, 0, slashIdx) + "/runtime"
+                let amcDir: string = String_Substring(amcPath, 0, slashIdx)
+                let xdgPath: string = amcDir + "/../share/amalgame/runtime"
+                if (File.Exists(xdgPath + "/_runtime.h")) {
+                    amcRuntime = xdgPath
+                } else {
+                    amcRuntime = amcDir + "/runtime"
+                }
             }
         }
 
@@ -598,9 +619,26 @@ public class AddCommand {
         }
 
         // Step 2 — gcc -c
-        var gccCmd: string = "gcc -O2 -Iruntime"
+        // Includes:
+        //   -I'<pkgDir>/runtime'  for the package's own
+        //                          Amalgame_*.h headers (the
+        //                          facade.am's @c { #include ... }
+        //                          block resolves against this).
+        //   -I'<amcRuntime>'      for the bundled _runtime.h +
+        //                          Amalgame_{String,Collections,…}.h.
+        //   -Iruntime             legacy in-tree fall-through; kept
+        //                          for compatibility with old layouts.
+        // Plus any system -I supplied by `[stdlib].cflags` in the
+        // package manifest (used by SDL-based packages to splice
+        // `$(pkg-config --cflags sdl2 SDL2_ttf)`).
+        var gccCmd: string = "gcc -O2 -Iruntime -I'" + pkgDir + "/runtime'"
         if (String_Length(amcRuntime) > 0) {
             gccCmd = gccCmd + " -I'" + amcRuntime + "'"
+        }
+        let cflagsVal: TomlValue = stdlibTbl.Get("cflags")
+        let cflagsStr: string = cflagsVal.AsString()
+        if (String_Length(cflagsStr) > 0) {
+            gccCmd = gccCmd + " " + cflagsStr
         }
         gccCmd = gccCmd + " -w -c '" + cFile + "' -o '" + oFile + "' 2>&1"
         let gccRes = Process.RunCapture(gccCmd)
