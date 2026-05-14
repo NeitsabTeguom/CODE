@@ -85,6 +85,7 @@ Name: "french";  MessagesFile: "compiler:Languages\French.isl"
 [Tasks]
 Name: "addtopath";    Description: "Add amc to PATH (recommended)";              GroupDescription: "Configuration:"; Flags: checked
 Name: "vscode_ext";   Description: "Install the Amalgame VS Code extension if VS Code is detected"; GroupDescription: "Configuration:"; Flags: checked
+Name: "samplescaffold"; Description: "Create a sample project at %USERPROFILE%\Amalgame\samples\MyFirstApp"; GroupDescription: "Configuration:"; Flags: checked
 #ifdef IncludeGccBundle
 ; Auto-deselected by InitializeWizard() when gcc.exe is already on PATH
 ; (typical MSYS2 / MinGW / Cygwin installs). User can re-check the box
@@ -124,10 +125,11 @@ Source: "gcc-bundle\*"; DestDir: "{app}\gcc"; Flags: ignoreversion recursesubdir
 #endif
 
 [Icons]
-Name: "{group}\Amalgame README";        Filename: "{app}\README.md"
+Name: "{group}\Amalgame README";          Filename: "{app}\README.md"
 Name: "{group}\Amalgame Getting Started"; Filename: "{app}\docs\01-getting-started.md"
-Name: "{group}\Uninstall Amalgame";     Filename: "{uninstallexe}"
-Name: "{userdesktop}\Amalgame Docs";    Filename: "{app}\docs\01-getting-started.md"; Tasks: desktopicon
+Name: "{group}\Amalgame Online Docs";     Filename: "https://github.com/amalgame-lang/Amalgame/tree/main/docs/guide"
+Name: "{group}\Uninstall Amalgame";       Filename: "{uninstallexe}"
+Name: "{userdesktop}\Amalgame Docs";      Filename: "{app}\docs\01-getting-started.md"; Tasks: desktopicon
 
 ; Note: no [Registry] entry for AMC_RUNTIME. Amalgame v0.8.1+ probes
 ; <bin>\..\share\amalgame\runtime via GetModuleFileNameA, which
@@ -238,6 +240,30 @@ begin
   end;
 end;
 
+// Drop a ready-to-open `MyFirstApp` scaffold under
+// %USERPROFILE%\Amalgame\samples\ so the user has somewhere to F5
+// into without first remembering `amc new`. Idempotent: if the
+// directory already exists we leave it alone.
+procedure ScaffoldSampleProject();
+var
+  UserProfile: string;
+  ParentDir:   string;
+  SampleDir:   string;
+  AmcExe:      string;
+  ResultCode:  Integer;
+begin
+  UserProfile := GetEnv('USERPROFILE');
+  if UserProfile = '' then Exit;
+  ParentDir := UserProfile + '\Amalgame\samples';
+  SampleDir := ParentDir + '\MyFirstApp';
+  if DirExists(SampleDir) then Exit;
+  ForceDirectories(ParentDir);
+  AmcExe := ExpandConstant('{app}\bin\amc.exe');
+  Exec('cmd.exe',
+       '/c cd /d "' + ParentDir + '" && "' + AmcExe + '" new MyFirstApp --vscode',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
@@ -251,6 +277,8 @@ begin
     end;
     if IsTaskSelected('vscode_ext') then
       InstallVSCodeExtension();
+    if IsTaskSelected('samplescaffold') then
+      ScaffoldSampleProject();
   end;
 end;
 
@@ -271,3 +299,5 @@ Type: filesandordirs; Name: "{app}"
 
 [Messages]
 WelcomeLabel2=This will install [name/ver] on your computer.%n%nAmalgame is a modern programming language that transpiles to C — bringing the best of Kotlin, Rust, F# and Go to your fingertips.%n%nClick Next to continue.
+FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nA sample project is at %USERPROFILE%\Amalgame\samples\MyFirstApp. Open it with VS Code (File → Open Folder) and press F5 to build + debug.%n%nOnline docs: https://github.com/amalgame-lang/Amalgame/tree/main/docs/guide
+FinishedLabel=Setup has finished installing [name] on your computer.%n%nA sample project is at %USERPROFILE%\Amalgame\samples\MyFirstApp. Open it with VS Code (File → Open Folder) and press F5 to build + debug.%n%nOnline docs: https://github.com/amalgame-lang/Amalgame/tree/main/docs/guide

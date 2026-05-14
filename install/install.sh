@@ -25,6 +25,7 @@
 #    AMC_NO_GCC     — skip GCC check                 (set to 1 to skip)
 #    AMC_NO_DEPS    — skip runtime dep install       (set to 1 to skip)
 #    AMC_NO_EDITORS — skip editor extension install  (set to 1 to skip)
+#    AMC_NO_SAMPLE  — skip sample-project scaffold   (set to 1 to skip)
 # ═══════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -494,17 +495,46 @@ HELIX_TOML
     fi
 fi
 
+# ── Sample project scaffold ───────────────────────────────
+# Drop a ready-to-open `MyFirstApp` under ~/Amalgame/samples/ so the
+# user has somewhere to F5 into without first remembering `amc new`.
+# Idempotent: if the directory already exists we leave it alone.
+SAMPLE_PARENT="$HOME/Amalgame/samples"
+SAMPLE_DIR="$SAMPLE_PARENT/MyFirstApp"
+SAMPLE_CREATED=0
+if [ "${AMC_NO_SAMPLE:-0}" != "1" ]; then
+    if [ ! -d "$SAMPLE_DIR" ]; then
+        header "Scaffolding sample project..."
+        mkdir -p "$SAMPLE_PARENT"
+        if (cd "$SAMPLE_PARENT" && "$BIN_DIR/amc" new MyFirstApp --vscode >/dev/null 2>&1); then
+            success "Sample project → $SAMPLE_DIR"
+            SAMPLE_CREATED=1
+        else
+            warn "amc new MyFirstApp failed (try manually: cd $SAMPLE_PARENT && amc new MyFirstApp --vscode)"
+        fi
+    else
+        info "Sample at $SAMPLE_DIR already exists — leaving it alone"
+        SAMPLE_CREATED=1
+    fi
+fi
+
 # ── Done ──────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}  Amalgame is ready!${NC}"
 echo ""
-echo "  Quick start:"
+if [ "$SAMPLE_CREATED" -eq 1 ]; then
+    echo "  Open the sample project:"
+    echo -e "    ${CYAN}code $SAMPLE_DIR${NC}"
+    echo -e "    ${CYAN}cd $SAMPLE_DIR && ./build.sh && ./MyFirstApp${NC}"
+    echo ""
+fi
+echo "  Or start your own:"
 echo -e "    ${CYAN}amc new myapp --vscode${NC}     # scaffold an executable (F5-ready in VS Code)"
 echo -e "    ${CYAN}cd myapp && ./build.sh${NC}      # release build"
-echo -e "    ${CYAN}./build.sh -g${NC}               # debug build (DWARF, for `amc dap`)"
+echo -e "    ${CYAN}./build.sh -g${NC}               # debug build (DWARF, for \`amc dap\`)"
 echo ""
-echo "  Documentation:"
-echo "    https://github.com/$REPO/blob/main/docs/guide/README.md"
+echo "  Online documentation (full user guide):"
+echo -e "    ${CYAN}https://github.com/$REPO/tree/main/docs/guide${NC}"
 echo ""
 if [ ":$PATH:" != *":$BIN_DIR:"* ]; then
     echo -e "  ${YELLOW}Restart your shell or run: source ~/.bashrc${NC}\n"
