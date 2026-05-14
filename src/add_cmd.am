@@ -423,7 +423,12 @@ public class AddCommand {
         // Resolve amc's runtime/ for -I. Same probe order as
         // PrecompileFacade: $AMC_RUNTIME → XDG install path
         // → legacy in-tree.
-        let amcPath0: string = Args_Get(0)
+        //
+        // Use ResolveSelfPath so that even when argv[0] is the
+        // bare 'amc' (PATH lookup), we get the canonical absolute
+        // path via /proc/self/exe — necessary because the XDG
+        // probe walks ..  from the binary's dir.
+        let amcPath0: string = AddCommand.ResolveSelfPath()
         var amcRuntime: string = Env_Get("AMC_RUNTIME")
         if (String_Length(amcRuntime) == 0) {
             let slashIdx: int = String_LastIndexOf(amcPath0, "/")
@@ -587,7 +592,11 @@ public class AddCommand {
         //      tarballs)
         //   3. <bin>/runtime                    (legacy in-tree path,
         //      kept for source checkouts)
-        let amcPath: string = Args_Get(0)
+        //
+        // ResolveSelfPath gives us the canonical absolute path via
+        // /proc/self/exe so the XDG `..` walk works even when amc
+        // is invoked as a bare 'amc' through PATH.
+        let amcPath: string = AddCommand.ResolveSelfPath()
         var amcRuntime: string = Env_Get("AMC_RUNTIME")
         if (String_Length(amcRuntime) == 0) {
             let slashIdx: int = String_LastIndexOf(amcPath, "/")
@@ -669,6 +678,34 @@ public class AddCommand {
     // Wall-clock seconds via `date +%s`. Coarse but enough for
     // compile-time tracking — multi-second resolution is well
     // below the typical compile durations we care about (>10s).
+    // Mirror of Program.ResolveSelfPath. The bootstrap pipeline
+    // compiles add_cmd.am for gen_test without main.am in scope,
+    // so cross-class references to Program.* trip 'undefined
+    // reference' at link time. Duplicating the @c block here is
+    // cheap (Linux readlink + Windows GetModuleFileNameA) and
+    // avoids untangling the bootstrap dependency graph.
+    public static string ResolveSelfPath() {
+        @c {
+            #ifdef _WIN32
+                char buf[4096];
+                DWORD n = GetModuleFileNameA(NULL, buf, sizeof(buf));
+                if (n == 0 || n >= sizeof(buf)) { return (code_string) ""; }
+                for (DWORD i = 0; i < n; i++) { if (buf[i] == '\\') buf[i] = '/'; }
+                char* out = (char*) GC_MALLOC((size_t)(n + 1));
+                memcpy(out, buf, (size_t)(n + 1));
+                return (code_string) out;
+            #else
+                char buf[4096];
+                ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+                if (n <= 0) { return (code_string) ""; }
+                buf[n] = '\0';
+                char* out = (char*) GC_MALLOC((size_t)(n + 1));
+                memcpy(out, buf, (size_t)(n + 1));
+                return (code_string) out;
+            #endif
+        }
+    }
+
     public static int NowSeconds() {
         let res = Process.RunCapture("date +%s")
         let raw: string = String_Trim(res.Stdout)
