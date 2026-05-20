@@ -117,8 +117,8 @@ consumes it. The legend:
 
 ### `[sessions]` — server-side session storage
 
-**Lib:** `Amalgame.Web.MemorySessionStore` / `SignedCookieSessionStore` (signed + AEAD modes) / `RedisSessionStore` (today) — `shm` backend planned (needs amalgame-threading integration + multi-thread HTTP server).
-**Status:** *partial* — `memory` (v0.8.1) + `signed_cookie` strategy (signed v0.8.3, encrypted v0.8.5) + `redis` backend (v0.8.4) ship; `shm` is *planned*.
+**Lib:** `Amalgame.Web.MemorySessionStore` / `SignedCookieSessionStore` (signed + AEAD modes) / `RedisSessionStore`.
+**Status:** *fully shipped* — `memory` (v0.8.1, made thread-safe in v0.9.0) + `signed_cookie` strategy (signed v0.8.3, encrypted v0.8.5) + `redis` backend (v0.8.4) + `shm` (v0.9.0; alias of `memory` since `MemorySessionStore` is now thread-safe under `Http1.ServeMt`).
 
 The schema has **two orthogonal dimensions**:
 
@@ -127,8 +127,8 @@ The schema has **two orthogonal dimensions**:
   - `encrypted_cookie` — data IS the cookie, signed (and eventually encrypted)
     with `amalgame-crypto`. No server storage; `backend` is ignored.
 - **`backend`** — *which* server-side store (when `strategy = "server_side"`):
-  - `memory` (default) — in-process Map; single-worker only
-  - `shm` (planned) — shared memory between workers of the same node
+  - `memory` (default, v0.9.0 thread-safe) — in-process Map. Safe under `Http1.ServeMt` (multi-thread accept loop) thanks to a process-wide mutex around the Map. Single-process, lost on restart.
+  - `shm` (v0.9.0; alias of `memory`) — historically reserved for "shared between workers of the same node". Since `memory` is now thread-safe, `shm` is recognised as a synonym; both wire to `MemorySessionStore`.
   - `redis` (v0.8.4) — multi-worker, multi-node; uses `amalgame-database-nosql-redis`
 
 | Key | Type | Default | Env | Notes |
@@ -239,7 +239,7 @@ Today the validation reads the configured header only; the
 ### `[security.rate_limit]` — per-IP / per-key throttling
 
 **Lib:** `Amalgame.Web.RateLimit.FromMap(...)` (v0.6.0).
-**Status:** *shipped* — fixed-window algorithm, `memory` (v0.6.0) + `redis` (v0.8.4) backends, per-IP keying. Sliding-window planned for v2.
+**Status:** *shipped* — fixed-window algorithm, `memory` (v0.6.0, thread-safe in v0.9.0) + `redis` (v0.8.4) backends, per-IP keying. Sliding-window planned for v2.
 
 | Key | Type | Default | Env | Notes |
 |---|---|---|---|---|
