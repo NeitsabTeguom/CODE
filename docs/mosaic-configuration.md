@@ -226,17 +226,20 @@ Unknown keys are ignored (forward-compat with future fields).
 
 ### `[limits]` — server-side resource ceilings
 
-**Lib:** `Amalgame.Net.Http.HttpServerConfig.FromMap(...)` (*planned*).
-**Status:** *planned* — currently hardcoded in the runtime.
+**Lib:** `Amalgame.Net.Http.HttpServerConfig` (v0.4.3) — C-struct with builders + getters; called via `Http1.ServeWith(port, config, handler)`. The Mosaic CLI flattens `[limits]` and calls the per-field `With*` setters.
+**Status:** *partial* — timeouts wired (Slowloris guard); size limits + Http2/Https/Ws/Wss ServeWith variants pending v0.4.4.
 
 | Key | Type | Default | Env | Notes |
 |---|---|---|---|---|
-| `max_body_size_mb` | `int` | `8` | `MOSAIC_LIMITS_MAX_BODY_SIZE_MB` | 413 returned on overflow. |
-| `max_header_size_kb` | `int` | `16` | `MOSAIC_LIMITS_MAX_HEADER_SIZE_KB` | 431 on overflow. |
-| `max_url_length` | `int` | `2048` | `MOSAIC_LIMITS_MAX_URL_LENGTH` | Bytes. |
-| `header_timeout_sec` | `int` | `10` | `MOSAIC_LIMITS_HEADER_TIMEOUT_SEC` | Slowloris guard — `SO_RCVTIMEO` on the connection until headers parsed. |
-| `body_timeout_sec` | `int` | `30` | `MOSAIC_LIMITS_BODY_TIMEOUT_SEC` | Idle-during-body guard. |
-| `idle_keepalive_sec` | `int` | `60` | `MOSAIC_LIMITS_IDLE_KEEPALIVE_SEC` | *needs HTTP keep-alive support — currently `Connection: close` only.* |
+| `header_timeout_sec` | `int` | `0` (off) | `MOSAIC_LIMITS_HEADER_TIMEOUT_SEC` | **shipped v0.4.3** — `SO_RCVTIMEO` on accepted connection. Slowloris guard. |
+| `body_timeout_sec` | `int` | `0` (off) | `MOSAIC_LIMITS_BODY_TIMEOUT_SEC` | **shipped v0.4.3** — applied alongside `header_timeout_sec` (larger of the two used as the single phase deadline; v0.4.4 will split). |
+| `idle_timeout_sec` | `int` | `0` | `MOSAIC_LIMITS_IDLE_TIMEOUT_SEC` | *planned* — needs HTTP keep-alive (currently `Connection: close` only). |
+| `max_body_bytes` | `int` | `8388608` (8 MiB) | `MOSAIC_LIMITS_MAX_BODY_BYTES` | *field present in HttpServerConfig, parser wiring pending v0.4.4*. 413 on overflow. |
+| `max_header_bytes` | `int` | — | `MOSAIC_LIMITS_MAX_HEADER_BYTES` | *field present, wiring pending v0.4.4*. 431 on overflow. |
+| `max_url_bytes` | `int` | — | `MOSAIC_LIMITS_MAX_URL_BYTES` | *field present, wiring pending v0.4.4*. |
+| `listen_backlog` | `int` | `64` | `MOSAIC_LIMITS_LISTEN_BACKLOG` | *field present, listen()-side wiring pending v0.4.4*. |
+
+To take effect today, the timeout knobs require **`Http1.ServeWith(port, config, handler)`** instead of the bare `Http1.Serve(port, handler)`. `Http1.Serve` is unchanged (timeouts off — current behavior). The other server variants (`Http2.Serve`, `Https.Serve`, `Ws.Serve`, `Wss.Serve`) get their own `*With` variants in v0.4.4.
 
 **Always-on invariant (not configurable):** `HttpResponse.Header(name, value)`
 silently drops any value containing CR (`\r`) or LF (`\n`) — HTTP-response-
