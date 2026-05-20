@@ -117,8 +117,8 @@ consumes it. The legend:
 
 ### `[sessions]` — server-side session storage
 
-**Lib:** `Amalgame.Web.MemorySessionStore` / `SignedCookieSessionStore` / `RedisSessionStore` (today) — `shm` backend planned (needs amalgame-threading integration).
-**Status:** *partial* — `memory` (v0.8.1) + `signed_cookie` strategy (v0.8.3) + `redis` backend (v0.8.4) ship; `shm` is *planned*.
+**Lib:** `Amalgame.Web.MemorySessionStore` / `SignedCookieSessionStore` (signed + AEAD modes) / `RedisSessionStore` (today) — `shm` backend planned (needs amalgame-threading integration + multi-thread HTTP server).
+**Status:** *partial* — `memory` (v0.8.1) + `signed_cookie` strategy (signed v0.8.3, encrypted v0.8.5) + `redis` backend (v0.8.4) ship; `shm` is *planned*.
 
 The schema has **two orthogonal dimensions**:
 
@@ -133,7 +133,8 @@ The schema has **two orthogonal dimensions**:
 
 | Key | Type | Default | Env | Notes |
 |---|---|---|---|---|
-| `strategy` | `"server_side"\|"encrypted_cookie"` | `"server_side"` | `MOSAIC_SESSIONS_STRATEGY` | When `encrypted_cookie`, the cookie value IS the signed session payload (Flask/Rails pattern). v0.1 is signed-only (visible but tamper-proof); AEAD encryption comes with amalgame-crypto v0.2. |
+| `strategy` | `"server_side"\|"encrypted_cookie"` | `"server_side"` | `MOSAIC_SESSIONS_STRATEGY` | When `encrypted_cookie`, the cookie value IS the encoded session payload (Flask/Rails pattern). Pair with `encrypted = "true"` to switch from HMAC-signed plain text (v0.8.3) to AES-256-GCM AEAD (v0.8.5, confidential + authenticated). |
+| `encrypted` | `bool` | `false` | `MOSAIC_SESSIONS_ENCRYPTED` | *shipped v0.8.5*. When `true`, payload is sealed with AES-256-GCM (key = SHA-256(secret), fresh 12-byte nonce per Encode). Wire format `<nonce_hex_24>.<ct_and_tag_hex>`. |
 | `secret` | `string` | — | `MOSAIC_SESSIONS_SECRET` | **Required** when `strategy = "encrypted_cookie"`. HMAC-SHA-256 key. Keep stable across deploys; rotation invalidates all signed cookies. |
 | `backend` | `"memory"\|"shm"\|"redis"` | `"memory"` | `MOSAIC_SESSIONS_BACKEND` | Ignored when `strategy = "encrypted_cookie"`. |
 | `dir` | `string` | `"./data/sessions"` | `MOSAIC_SESSIONS_DIR` | For future `file` backend (not in the 3-tier triplet). |
@@ -148,11 +149,12 @@ The schema has **two orthogonal dimensions**:
 | `cookie_path` | `string` | `"/"` | `MOSAIC_SESSIONS_COOKIE_PATH` | *shipped v0.8.1/v0.8.3*. |
 | `cookie_max_age` | `int` | `0` | `MOSAIC_SESSIONS_COOKIE_MAX_AGE` | Set-Cookie `Max-Age=`. 0 = session cookie. *shipped v0.8.1/v0.8.3*. |
 
-**SignedCookieSessionStore caveats (v0.8.3, signed-only):**
-- Data is visible to anyone who has the cookie (tamper-proof but NOT confidential). Don't store secrets / credentials.
-- Keys + values must not contain `&`, `=`, or `.` (no escaping in v0.1 — JSON payload comes in v0.2).
+**SignedCookieSessionStore caveats:**
+- Signed-only mode (`encrypted = false`, default): data is visible to anyone who has the cookie (tamper-proof but NOT confidential). Don't store secrets / credentials.
+- Encrypted mode (`encrypted = true`, v0.8.5): confidential AND authenticated via AES-256-GCM. Cookie is ~2× larger (hex encoding + 16-byte tag + 12-byte nonce overhead). Safe for moderate-sensitivity payloads (user_id, email, role).
+- Keys + values must not contain `&`, `=`, or `.` (no escaping in v0.1 — JSON payload planned).
 - 4 KB cookie limit ≈ ~30 typical key=value pairs.
-- For sensitive data: switch to `strategy = "server_side"` with `backend = "redis"`, or wait for the AEAD-encrypted variant (depends on amalgame-crypto v0.2).
+- Switch to `strategy = "server_side"` for very large session payloads or when revocation must be synchronous (cookie sessions can only be revoked by rotating the secret, which invalidates everyone).
 
 ---
 
