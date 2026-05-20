@@ -117,8 +117,8 @@ consumes it. The legend:
 
 ### `[sessions]` — server-side session storage
 
-**Lib:** `Amalgame.Web.MemorySessionStore` / `SignedCookieSessionStore` (today) — `RedisSessionStore` (planned, uses amalgame-database-nosql-redis) — `shm` backend planned (needs amalgame-threading).
-**Status:** *partial* — `memory` (v0.8.1) + `signed_cookie` strategy (v0.8.3) ship; `redis` and `shm` are *planned*.
+**Lib:** `Amalgame.Web.MemorySessionStore` / `SignedCookieSessionStore` / `RedisSessionStore` (today) — `shm` backend planned (needs amalgame-threading integration).
+**Status:** *partial* — `memory` (v0.8.1) + `signed_cookie` strategy (v0.8.3) + `redis` backend (v0.8.4) ship; `shm` is *planned*.
 
 The schema has **two orthogonal dimensions**:
 
@@ -129,7 +129,7 @@ The schema has **two orthogonal dimensions**:
 - **`backend`** — *which* server-side store (when `strategy = "server_side"`):
   - `memory` (default) — in-process Map; single-worker only
   - `shm` (planned) — shared memory between workers of the same node
-  - `redis` (planned) — multi-worker, multi-node
+  - `redis` (v0.8.4) — multi-worker, multi-node; uses `amalgame-database-nosql-redis`
 
 | Key | Type | Default | Env | Notes |
 |---|---|---|---|---|
@@ -137,7 +137,10 @@ The schema has **two orthogonal dimensions**:
 | `secret` | `string` | — | `MOSAIC_SESSIONS_SECRET` | **Required** when `strategy = "encrypted_cookie"`. HMAC-SHA-256 key. Keep stable across deploys; rotation invalidates all signed cookies. |
 | `backend` | `"memory"\|"shm"\|"redis"` | `"memory"` | `MOSAIC_SESSIONS_BACKEND` | Ignored when `strategy = "encrypted_cookie"`. |
 | `dir` | `string` | `"./data/sessions"` | `MOSAIC_SESSIONS_DIR` | For future `file` backend (not in the 3-tier triplet). |
-| `url` | `string` | — | `MOSAIC_SESSIONS_URL` | For `redis` (`redis://host:port/db`). |
+| `host` | `string` | `"127.0.0.1"` | `MOSAIC_SESSIONS_HOST` | For `redis` backend. *shipped v0.8.4*. |
+| `port` | `int` | `6379` | `MOSAIC_SESSIONS_PORT` | For `redis` backend. *shipped v0.8.4*. |
+| `key_prefix` | `string` | `"mosaic:session"` | `MOSAIC_SESSIONS_KEY_PREFIX` | For `redis` backend — Redis key namespace. *shipped v0.8.4*. |
+| `url` | `string` | — | `MOSAIC_SESSIONS_URL` | Reserved for future `redis://host:port/db` parsing; for now use `host` + `port`. |
 | `max_age_sec` | `int` | `86400` | `MOSAIC_SESSIONS_MAX_AGE_SEC` | Per-session TTL (server-side stores). |
 | `cookie_name` | `string` | `"mosaic_session"` | `MOSAIC_SESSIONS_COOKIE_NAME` | *shipped v0.8.1* (memory) / *v0.8.3* (signed_cookie). |
 | `cookie_secure` | `bool` | `true` (when TLS on) | `MOSAIC_SESSIONS_COOKIE_SECURE` | *shipped v0.8.1/v0.8.3*. |
@@ -234,7 +237,7 @@ Today the validation reads the configured header only; the
 ### `[security.rate_limit]` — per-IP / per-key throttling
 
 **Lib:** `Amalgame.Web.RateLimit.FromMap(...)` (v0.6.0).
-**Status:** *shipped* — fixed-window algorithm, in-process memory store, per-IP keying. Sliding-window + Redis backend planned for v2.
+**Status:** *shipped* — fixed-window algorithm, `memory` (v0.6.0) + `redis` (v0.8.4) backends, per-IP keying. Sliding-window planned for v2.
 
 | Key | Type | Default | Env | Notes |
 |---|---|---|---|---|
@@ -245,8 +248,11 @@ Today the validation reads the configured header only; the
 | `window_sec` | `int` | `1` | `MOSAIC_SECURITY_RATE_LIMIT_WINDOW_SEC` | Window length in seconds. |
 | `key_strategy` | `"ip"` | `"ip"` | `MOSAIC_SECURITY_RATE_LIMIT_KEY_STRATEGY` | Only `"ip"` supported today (strips `:port` from `RemoteAddr`). `"user"`/`"custom"` *planned v2*. |
 | `trusted_proxies` | `[string]` | `[]` | `MOSAIC_SECURITY_RATE_LIMIT_TRUSTED_PROXIES` | CIDRs whose `X-Forwarded-For` is trusted. *planned v2*. |
-| `backend` | `"memory"\|"redis"` | `"memory"` | `MOSAIC_SECURITY_RATE_LIMIT_BACKEND` | Redis *planned v2*. |
-| `redis_url` | `string` | — | `MOSAIC_SECURITY_RATE_LIMIT_REDIS_URL` | *planned v2*. |
+| `backend` | `"memory"\|"redis"` | `"memory"` | `MOSAIC_SECURITY_RATE_LIMIT_BACKEND` | *shipped v0.8.4* — `redis` uses INCR + EXPIRE per window (atomic on the counter, EXPIRE set-once via INCR==1). |
+| `redis_host` | `string` | `"127.0.0.1"` | `MOSAIC_SECURITY_RATE_LIMIT_REDIS_HOST` | *shipped v0.8.4*. |
+| `redis_port` | `int` | `6379` | `MOSAIC_SECURITY_RATE_LIMIT_REDIS_PORT` | *shipped v0.8.4*. |
+| `redis_key_prefix` | `string` | `"mosaic:rl"` | `MOSAIC_SECURITY_RATE_LIMIT_REDIS_KEY_PREFIX` | *shipped v0.8.4*. |
+| `redis_url` | `string` | — | `MOSAIC_SECURITY_RATE_LIMIT_REDIS_URL` | Reserved for future `redis://` URL parsing; use the three keys above for now. |
 
 **Algorithm caveat:** the v1 fixed-window counter can briefly allow
 up to `2 × max_requests` across a window boundary (a burst that
