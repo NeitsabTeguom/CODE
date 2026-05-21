@@ -820,12 +820,46 @@ public class Program {
     // will need a richer install story (--runtime, AMC_RUNTIME env
     // var) which is left for a follow-up.
     public static int RunTest(int argc) {
-        var dir = "."
+        var dir          = "."
+        var filterPat    = ""    // substring filter on test paths
+        var ciMode       = false // tighten output for CI logs
+        var listOnly     = false // print discovered paths, don't run
         var i = 2
         while (i < argc) {
             let a = Args_Get(i)
+            if (a == "--filter") {
+                if (i + 1 >= argc) {
+                    Console.WriteError("amc test: --filter needs a value")
+                    return 1
+                }
+                filterPat = Args_Get(i + 1)
+                i = i + 2
+                continue
+            }
+            if (a == "--ci") {
+                ciMode = true
+                i = i + 1
+                continue
+            }
+            if (a == "--list") {
+                listOnly = true
+                i = i + 1
+                continue
+            }
+            if (a == "-h" || a == "--help") {
+                Console.WriteError("Usage: amc test [<dir>] [--filter <pat>] [--ci] [--list]")
+                Console.WriteError("")
+                Console.WriteError("Discover *_test.am files under <dir> (default: cwd), compile + run each,")
+                Console.WriteError("tally [PASS]/[FAIL]/[SKIP] lines from stdout.")
+                Console.WriteError("")
+                Console.WriteError("Options:")
+                Console.WriteError("  --filter <pat>   Only run tests whose path contains <pat> (substring).")
+                Console.WriteError("  --ci             Terse output: drop per-file headers, just print the totals.")
+                Console.WriteError("  --list           Discover + print test paths; don't compile or run.")
+                return 0
+            }
             if (String_StartsWith(a, "-")) {
-                Console.WriteError("amc test: unknown option '" + a + "'")
+                Console.WriteError("amc test: unknown option '" + a + "' (try --help)")
                 return 1
             }
             dir = a
@@ -836,14 +870,54 @@ public class Program {
         // amalgame.lock-declared packages that aren't in the cache
         // get re-cloned here, so `git clone <repo> && amc test`
         // works in one step. No-op when there's no lock file or
-        // every dep is already present.
-        let installed: int = AddCommand.EnsureInstalled()
-        if (installed < 0) {
-            Console.WriteError("amc test: package install failed; aborting")
+        // every dep is already present. `--list` short-circuits
+        // before the install step because the user just wants the
+        // discovery output.
+        if (!listOnly) {
+            let installed: int = AddCommand.EnsureInstalled()
+            if (installed < 0) {
+                Console.WriteError("amc test: package install failed; aborting")
+                return 1
+            }
+            if (installed > 0 && !ciMode) {
+                Console.WriteLine("amc test: installed " + String_FromInt(installed) + " missing dep(s)")
+            }
+        }
+
+        // Discovery first — `--list` exits before any runtime /
+        // package setup so it stays fast (matters when the user
+        // wires `amc test --list` into a test-explorer UI that
+        // polls on every keystroke).
+        let findCmd = "find " + dir + " -name '*_test.am' -type f"
+        let discovered = Process.RunCapture(findCmd)
+        if (discovered.Exit != 0) {
+            Console.WriteError("amc test: failed to enumerate tests in " + dir)
+            Console.WriteError(discovered.Stdout)
             return 1
         }
-        if (installed > 0) {
-            Console.WriteLine("amc test: installed " + String_FromInt(installed) + " missing dep(s)")
+        let rawLines: List<string> = String_Split(String_Trim(discovered.Stdout), "\n")
+        let lines: List<string> = new List<string>()
+        let rawN: int = rawLines.Count()
+        for ri in 0..rawN {
+            let p = String_Trim(rawLines.Get(ri))
+            if (String_Length(p) == 0) { continue }
+            if (String_Length(filterPat) > 0 && String_IndexOf(p, filterPat) < 0) { continue }
+            lines.Add(p)
+        }
+        let nLines: int = lines.Count()
+        if (nLines == 0) {
+            if (String_Length(filterPat) > 0) {
+                Console.WriteLine("No *_test.am files matching '" + filterPat + "' under " + dir)
+            } else {
+                Console.WriteLine("No *_test.am files found under " + dir)
+            }
+            return 0
+        }
+        if (listOnly) {
+            for li in 0..nLines {
+                Console.WriteLine(lines.Get(li))
+            }
+            return 0
         }
 
         // v0.5.2: resolve amc's runtime/ once + pre-compile each
@@ -871,31 +945,6 @@ public class Program {
         // bundling the facade source on every compile.
         let facadeArs: List<string> = registry.CollectFacadeArchives()
 
-        // Discovery: shell out to `find`. Works on POSIX and on
-        // Windows MSYS2 (the only Windows path the repo CI exercises).
-        let findCmd = "find " + dir + " -name '*_test.am' -type f"
-        let discovered = Process.RunCapture(findCmd)
-        if (discovered.Exit != 0) {
-            Console.WriteError("amc test: failed to enumerate tests in " + dir)
-            Console.WriteError(discovered.Stdout)
-            return 1
-        }
-        let lines: List<string> = String_Split(String_Trim(discovered.Stdout), "\n")
-        let nLines = lines.Count()
-        if (nLines == 0) {
-            Console.WriteLine("No *_test.am files found under " + dir)
-            return 0
-        }
-        // String_Split on "" returns a single empty entry; treat
-        // that as "no files" too.
-        if (nLines == 1) {
-            let only = String_Trim(lines.Get(0))
-            if (String_Length(only) == 0) {
-                Console.WriteLine("No *_test.am files found under " + dir)
-                return 0
-            }
-        }
-
         var amcPath: string = Program.ResolveSelfPath()
         if (String_Length(amcPath) == 0) {
             amcPath = Args_Get(0)
@@ -908,7 +957,12 @@ public class Program {
         for li in 0..nLines {
             let path = String_Trim(lines.Get(li))
             if (String_Length(path) == 0) { continue }
-            Console.WriteLine("── " + path)
+            // CI mode skips per-file headers — keep only the per-
+            // test PASS/FAIL/SKIP lines + the final tally for
+            // grep-friendly logs.
+            if (!ciMode) {
+                Console.WriteLine("── " + path)
+            }
 
             // Step 1 — amc <test>.am -o <tmp>  → produces <tmp>.c
             let outBin = "/tmp/amc_test_" + String_FromInt(li)
@@ -998,13 +1052,17 @@ public class Program {
             for ln in 0..on {
                 let lineStr = outLines.Get(ln)
                 if (String_StartsWith(lineStr, "[PASS]")) {
-                    Console.WriteLine("  " + lineStr)
+                    // PASS lines are noise in ciMode — only print
+                    // them when running interactively.
+                    if (!ciMode) { Console.WriteLine("  " + lineStr) }
                     pass = pass + 1
                 } else if (String_StartsWith(lineStr, "[FAIL]")) {
+                    // Always surface FAILs, even in CI — the line
+                    // tells the developer which assertion broke.
                     Console.WriteLine("  " + lineStr)
                     fail = fail + 1
                 } else if (String_StartsWith(lineStr, "[SKIP]")) {
-                    Console.WriteLine("  " + lineStr)
+                    if (!ciMode) { Console.WriteLine("  " + lineStr) }
                     skip = skip + 1
                 }
             }
