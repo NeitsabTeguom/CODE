@@ -1050,23 +1050,103 @@ public class Program {
         let n: int = reg.Packages.Count()
         for i in 0..n {
             let p: LoadedPackage = reg.Packages.Get(i)
-            let sources: List<string> = p.Sources
+            // Both the facade (single AM file) and [stdlib].sources
+            // (a list) need to land in the package's combined .o.
+            // Splitting them here so the AM pipeline below sees one
+            // unified list — the precompile output is per-package,
+            // not per-source.
+            let sources: List<string> = new List<string>()
+            if (String_Length(p.Facade) > 0) {
+                sources.Add(p.Facade)
+            }
+            let extraSrc: int = p.Sources.Count()
+            for esi in 0..extraSrc {
+                sources.Add(p.Sources.Get(esi))
+            }
             let sn: int = sources.Count()
+            if (sn == 0) { continue }
             // Compute the persistent precompile cache dir for this
             // package (only used if .o is present there; not
             // created here).
             let persistentDir: string = PackageRegistry.PrecompileCacheDir(p.PkgDir)
+
+            // Split sources into AM vs C/C++.  AM sources all compile
+            // together via a single `amc --lib` invocation (cross-file
+            // refs like Cookie ↔ HttpResponse need their siblings in
+            // scope).  Native sources still compile one-per-file since
+            // each is independent.
+            let amSources: List<string> = new List<string>()
+            let nativeSources: List<string> = new List<string>()
             for j in 0..sn {
-                let srcPath: string = sources.Get(j)
-                if (String_Length(srcPath) == 0) { continue }
-                // Derive an .o filename from the basename so two
-                // packages shipping a `foo.c` don't collide.
+                let sp: string = sources.Get(j)
+                if (String_Length(sp) == 0) { continue }
+                if (String_EndsWith(sp, ".am")) {
+                    amSources.Add(sp)
+                } else {
+                    nativeSources.Add(sp)
+                }
+            }
+
+            // ── AM path: single combined .o per package ───
+            if (amSources.Count() > 0) {
+                let amObj: string = "/tmp/amc-pkg-" + p.ClassName + ".o"
+                let amCacheObj: string = persistentDir + "/" + p.ClassName + ".o"
+                var skipAm: bool = false
+                if (File.Exists(amCacheObj)) {
+                    out.Add(amCacheObj); skipAm = true
+                } else if (File.Exists(amObj)) {
+                    out.Add(amObj); skipAm = true
+                }
+                if (!skipAm) {
+                    let amCsrc: string = amObj + ".c"
+                    let amcSelf: string = Program.ResolveSelfPath()
+                    var amcCmd: string = "'" + amcSelf + "' --lib --quiet -o '" + amObj + "'"
+                    let amCount: int = amSources.Count()
+                    for ai in 0..amCount {
+                        amcCmd = amcCmd + " '" + amSources.Get(ai) + "'"
+                    }
+                    let amcRes = Process.RunCapture(amcCmd)
+                    if (amcRes.Exit != 0) {
+                        Console.WriteError("amc precompile: amc --lib failed for " + p.ClassName)
+                        Console.WriteError(amcRes.Stdout)
+                    } else {
+                        var cmd: string = "gcc -O2"
+                        if (String_Length(amcRuntime) > 0) {
+                            cmd = cmd + " -I'" + amcRuntime + "'"
+                        }
+                        // The package's own runtime/ dir hosts the C
+                        // header named in [stdlib].header — every
+                        // include line in the generated .c references
+                        // it by basename, so missing the -I produces
+                        // the classic "Amalgame_X.h not found" fatal
+                        // error at the precompile gcc step.
+                        let pkgRuntime: string = p.PkgDir + "/runtime"
+                        cmd = cmd + " -I'" + pkgRuntime + "' -I'" + p.PkgDir + "'"
+                        if (String_Length(p.CFlags) > 0) {
+                            cmd = cmd + " " + p.CFlags
+                        }
+                        cmd = cmd + " -w -c '" + amCsrc + "' -o '" + amObj + "'"
+                        let gccRes = Process.RunCapture(cmd)
+                        if (gccRes.Exit != 0) {
+                            Console.WriteError("amc precompile: gcc failed for " + p.ClassName)
+                            Console.WriteError(gccRes.Stdout)
+                        } else {
+                            Console.WriteLine("Pre-compiled " + p.ClassName + " (" + String_FromInt(amCount) + " AM sources)")
+                            out.Add(amObj)
+                        }
+                    }
+                }
+            }
+
+            // ── Native path: one .o per .c/.cpp source ─────
+            let nn: int = nativeSources.Count()
+            for j in 0..nn {
+                let srcPath: string = nativeSources.Get(j)
                 let lastSlash: int = String_LastIndexOf(srcPath, "/")
                 var srcLeaf: string = srcPath
                 if (lastSlash >= 0) {
                     srcLeaf = String_Substring(srcPath, lastSlash + 1, String_Length(srcPath) - lastSlash - 1)
                 }
-                // Persistent cache lookup first.
                 let persistentObj: string = persistentDir + "/" + p.ClassName + "-" + srcLeaf + ".o"
                 if (File.Exists(persistentObj)) {
                     out.Add(persistentObj)
@@ -1087,16 +1167,12 @@ public class Program {
                 if (String_Length(amcRuntime) > 0) {
                     cmd = cmd + " -I'" + amcRuntime + "'"
                 }
-                // Per-package flags. CFlags for C, CxxFlags for C++.
                 if (isCxx && String_Length(p.CxxFlags) > 0) {
                     cmd = cmd + " " + p.CxxFlags
                 }
                 if (!isCxx && String_Length(p.CFlags) > 0) {
                     cmd = cmd + " " + p.CFlags
                 }
-                // -w to silence the upstream code's own warnings;
-                // we don't want amalgamation warnings cluttering
-                // `amc test` output.
                 cmd = cmd + " -w -c '" + srcPath + "' -o '" + objPath + "'"
                 let res = Process.RunCapture(cmd)
                 if (res.Exit != 0) {
