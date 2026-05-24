@@ -1027,32 +1027,51 @@ of things a reasonably complete stdlib usually has and Amalgame
 currently doesn't. Ordered by rough user-facing value, not by
 implementation effort.
 
-- [~] **`Amalgame.Audio`** v0.1 → v0.4 shipped
-      ([amalgame-lang/amalgame-audio](https://github.com/amalgame-lang/amalgame-audio)).
-      Runtime binding on [miniaudio](https://miniaud.io/) (public
-      domain, vendored at `runtime/vendor/miniaudio.h`, no link-
-      time dep). Canonical buffer format: 16-bit signed PCM mono.
-      v0.1 surface: synthesis (`GenSine` / `GenSquare` /
-      `GenTriangle` / `GenNoise` / `GenSilence`), transforms
-      (`ApplyEnvelope` / `Scale` / `Mix` / `Echo`), IO (`LoadWav`
-      / `SaveAsWav` / `Play`), `LastError`. v0.2 adds multi-
-      format decode (`Load` / `LoadMp3` / `LoadFlac` / `LoadOgg`)
-      + sondes (`SampleRateOf` / `ChannelCountOf` / `DurationMsOf`).
-      v0.3 adds mic capture (`Record` blocking + `RecordStart` /
-      `RecordStop` / `RecordIsActive` / `RecordSampleCount`
-      non-blocking — bdwgc thread-pinning sidestepped by keeping
-      the audio callback to a pre-allocated C int16 buffer).
-      v0.4 adds streaming playback (`PlayStart` / `PlayPause` /
-      `PlayResume` / `PlayStop` / `PlayIsActive` / `PlayIsPaused`
-      / `PlaySampleCount`) — soft pause via silence-in-callback,
-      no `ma_device_stop` pop on resume. The original v1
-      description on this line is now closed *except* for the
-      live `AudioMixer` (multi-source playback over the v0.4
-      streaming surface), which moves to v0.5 below. Deferred
-      to v0.5+: live mixing graph + spatial / HRTF, real-time
-      synthesis via user callback, pitch-shift / time-stretch /
-      FFT, multi-channel pipelines (stereo / surround / 32-bit
-      float), stretch: MIDI in/out.
+- [x] **`Amalgame.Audio` v1 fully shipped**
+      ([amalgame-lang/amalgame-audio](https://github.com/amalgame-lang/amalgame-audio),
+      v0.1 → v0.6). Runtime binding on
+      [miniaudio](https://miniaud.io/) (public domain, vendored
+      at `runtime/vendor/miniaudio.h`, no link-time dep).
+      Canonical buffer format: 16-bit signed PCM mono. Shipped
+      surface:
+        - **v0.1** — synthesis (`GenSine` / `GenSquare` /
+          `GenTriangle` / `GenNoise` / `GenSilence`), transforms
+          (`ApplyEnvelope` / `Scale` / `Mix` / `Echo`), IO
+          (`LoadWav` / `SaveAsWav` / `Play`), `LastError`.
+        - **v0.2** — multi-format decode (`Load` / `LoadMp3` /
+          `LoadFlac` / `LoadOgg`) + sondes (`SampleRateOf` /
+          `ChannelCountOf` / `DurationMsOf`).
+        - **v0.3** — mic capture (`Record` blocking + non-
+          blocking `RecordStart` / `RecordStop` /
+          `RecordIsActive` / `RecordSampleCount`). bdwgc
+          thread-pinning sidestepped by keeping the audio
+          callback to a pre-allocated C int16 buffer.
+        - **v0.4** — streaming playback (`PlayStart` /
+          `PlayPause` / `PlayResume` / `PlayStop` /
+          `PlayIsActive` / `PlayIsPaused` / `PlaySampleCount`).
+          Soft pause via silence-in-callback, no
+          `ma_device_stop` pop on resume.
+        - **v0.5** — live `AudioMixer` (`MixerStart` /
+          `MixerAddSource` / `MixerSetGain` /
+          `MixerSetPaused` / `MixerRemoveSource` /
+          `MixerSourceCount` / `MixerStop`). Hard-cap 32 voices,
+          `ma_mutex`-protected, monotonic voice IDs, per-frame
+          f32 accumulator with int16 clip, auto-prune on drain.
+        - **v0.6** — MIDI (`MidiLoadSmf` / `MidiSaveSmf` /
+          `MidiRenderToAudio` / `MidiLastTicksPerQuarter` /
+          `MidiLastTempo`). Format 0 + format 1 SMF, sine-synth
+          render with per-(channel, note) state. Closes the v1
+          "MIDI in/out" stretch goal — SMF file IO covers the
+          most common workflow (load song → render → save WAV)
+          without any device dep.
+      **Deferred to v0.7+ (extensions, NOT on the original v1
+      surface)**: MIDI device IO (live keyboards / hardware
+      synths, needs portable ALSA seq / CoreMIDI / winmm
+      wrapper), pitch-bend / CC rendering in MidiRenderToAudio,
+      real-time synthesis via user-provided callback, pitch-
+      shift / time-stretch / FFT analysis, spatial audio / HRTF
+      / panning, multi-channel pipelines (stereo / surround /
+      32-bit float).
 - [x] **`Amalgame.Database.SQLite` v1** (PR #266, v0.4.15) —
       SQLite 3 binding via the vendored amalgamation
       (`runtime/Amalgame_Database/sqlite/`). Public-domain
