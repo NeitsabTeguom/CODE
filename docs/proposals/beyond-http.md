@@ -1,15 +1,21 @@
 # Beyond HTTP — nginx/apache-equivalent capabilities
 
-**Status:** in-progress. Verified against the repos **2026-06-04**.
+**Status:** in-progress. Verified against the repos **2026-06-05**.
 **Shipped:** #6 Static file serving (web v0.13.0, + Range / Last-Modified
 / `.gz` follow-ups), #11 SSE (net-http v0.16.0 + web v0.28.0), #1 Reverse
 proxy + #2 Load balancing (`amalgame-net-proxy` v0.2.1: path routing +
-round-robin / IP-hash / least-connections). #4's **outbound** SMTP client
-shipped separately as `amalgame-net-smtp` v0.2.4 (the inbound relay /
-IMAP / POP3 server described here is still roadmap).
-**Still roadmap:** #3 TCP/UDP raw proxy, #4 SMTP *server*/IMAP/POP3, #5
-SFTP, #7 VPN/WireGuard, #8 CDN, #9 gRPC, #10 DNS/DoH, #12 WebDAV; plus
-proxy follow-ups (health checks, circuit breaker) and static `sendfile(2)`.
+round-robin / IP-hash / least-connections), #3 **TCP** raw proxy
+(`amalgame-net-stream` v0.1.0: binary-safe splicing, idle/connect
+timeouts, per-source-IP caps, graceful shutdown), #9 **gRPC** end-to-end
+(`amalgame-net-grpc` v0.7.0: all 4 RPC kinds unary/server-stream/
+client-stream/bidi, h2c + TLS, client + server, `.proto` codegen,
+grpcurl interop). #4's **outbound** SMTP client shipped separately as
+`amalgame-net-smtp` v0.2.4 (the inbound relay / IMAP / POP3 server
+described here is still roadmap).
+**Still roadmap:** #3 **UDP** raw proxy (TCP done), #4 SMTP *server*/IMAP/
+POP3, #5 FTP/SFTP/SCP, #7 VPN/WireGuard, #8 CDN, #10 DNS/DoH, #12 WebDAV;
+plus proxy follow-ups (health checks, circuit breaker) and static
+`sendfile(2)`.
 The inventory below captures what the stack still needs to match nginx /
 apache / HAProxy / Postfix territory.
 
@@ -437,7 +443,7 @@ or Fastly in front and skip writing this. But for sovereign /
 self-hosted / air-gapped scenarios, having a first-class CDN
 package matters. ~6-8 days for v0.1.
 
-### 9. gRPC server — 🟢 servable end-to-end (unary); codegen next
+### 9. gRPC — ✅ SHIPPED end-to-end (net-grpc v0.7.0)
 
 > 🟡 **Two layers shipped:**
 > - `amalgame-formats-protobuf` v0.1.0 — proto3 **wire-format codec**
