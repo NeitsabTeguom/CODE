@@ -186,7 +186,22 @@ not as universally required as HTTP reverse proxy.
 > 🟡 The **outbound** half shipped as `amalgame-net-smtp` v0.2.4 (a
 > TLS SMTP *client* + `Mail` builder for transactional mail, RFC 2047
 > subjects — used by Mosaic contact forms). The **inbound** relay /
-> IMAP / POP3 *server* described below is still roadmap.
+> IMAP / POP3 *server* described below is still roadmap — now spec'd in
+> detail in [`native-mail-server.md`](native-mail-server.md) (net-smtp
+> server side + net-imap + net-pop3, unified `amalgame-auth` account,
+> deliverability + security-audit gating). Phases 1-5 shipped — the full
+> protocol set: `amalgame-formats-mime` v0.1.0 (RFC 5322/MIME reader) +
+> `amalgame-net-mail-store` v0.1.0 (Maildir + SQLite index) +
+> `amalgame-net-smtp-server` v0.1.0 (receiving ESMTP) +
+> `amalgame-net-imap` v0.1.0 (IMAP4rev1) + `amalgame-net-pop3` v0.1.0
+> (POP3 + STLS) — all loopback smoke-tested with real clients (smtplib /
+> imaplib / poplib). SMTP-in + IMAP/POP3-out work end to end. Phase 6:
+> `amalgame-mail-dkim` v0.1.0 (RFC 6376 signer + verify) +
+> `amalgame-mail-send` v0.1.0 (outbound SMTP delivery, plaintext +
+> STARTTLS, DKIM-integrated, smoke-tested) — the send path. The whole
+> mail stack (7 packages) is built & tested. Remaining is infra/ops:
+> publish SPF/DKIM/DMARC + PTR (DNS at IONOS), the security-audit gate,
+> then :25 exposure + go-live.
 
 The mail proxy / server slice.  Three sub-protocols, each
 non-trivial.
